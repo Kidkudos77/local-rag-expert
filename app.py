@@ -1,10 +1,5 @@
 """
 app.py — Streamlit Frontend
-
-What this does:
-  - Sidebar: accepts file uploads, triggers ingestion pipeline
-  - Main area: persistent chat interface backed by the RAG chain
-
 Run with: streamlit run app.py
 """
 
@@ -16,18 +11,16 @@ import streamlit as st
 from ingest import ingest, CHROMA_PATH
 from rag_chain import query
 
-# --- Page Config ---
 st.set_page_config(
     page_title="Local RAG Expert",
     page_icon="🧠",
     layout="wide",
 )
 
-# --- Sidebar: Document Ingestion ---
+# --- Sidebar ---
 with st.sidebar:
     st.title("🧠 RAG Expert")
     st.caption("Private. Local. Grounded.")
-
     st.divider()
     st.subheader("📁 Documents")
 
@@ -45,7 +38,6 @@ with st.sidebar:
     )
 
     if ingest_btn:
-        # Save uploads to a temp folder
         DOCS_FOLDER = "documents"
         if os.path.exists(DOCS_FOLDER):
             shutil.rmtree(DOCS_FOLDER)
@@ -56,16 +48,28 @@ with st.sidebar:
             with open(dest, "wb") as f:
                 f.write(file.getbuffer())
 
-        with st.spinner(f"Ingesting {len(uploaded_files)} file(s)... this may take a minute."):
-            try:
-                ingest(DOCS_FOLDER)
-                st.success(f"✅ Ready! {len(uploaded_files)} file(s) indexed.")
-                # Clear chat history when new docs are loaded
-                st.session_state.messages = []
-            except Exception as e:
-                st.error(f"Ingestion failed: {e}")
+        st.info(f"Processing {len(uploaded_files)} file(s)...")
 
-    # Show current status
+        # Progress bar + status text
+        progress_bar  = st.progress(0, text="Starting ingestion...")
+        status_text   = st.empty()
+
+        def update_progress(current, total):
+            pct = int((current / total) * 100)
+            progress_bar.progress(pct, text=f"Embedding chunks... {current}/{total}")
+            status_text.caption(f"{pct}% complete")
+
+        try:
+            ingest(DOCS_FOLDER, progress_callback=update_progress)
+            progress_bar.progress(100, text="✅ Done!")
+            status_text.empty()
+            st.success(f"✅ Ready! {len(uploaded_files)} file(s) indexed.")
+            st.session_state.messages = []
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(f"Ingestion failed: {e}")
+
     st.divider()
     if os.path.exists(CHROMA_PATH):
         st.success("✅ Vector store is ready")
@@ -73,42 +77,43 @@ with st.sidebar:
         st.warning("⚠️ No documents ingested yet")
 
     st.divider()
-    st.caption(
-        "**Stack:** LangChain · ChromaDB · Ollama (Llama 3) · Streamlit"
-    )
+    st.caption("**Stack:** LangChain · ChromaDB · Ollama (Llama 3) · Streamlit")
 
 
-# --- Main Area: Chat Interface ---
+# --- Main Chat ---
 st.title("Chat with Your Documents")
 st.caption("Answers are grounded in your uploaded documents only — no hallucination from outside knowledge.")
 
-# Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Handle new user input
 if prompt := st.chat_input("Ask a question about your documents..."):
 
     if not os.path.exists(CHROMA_PATH):
         st.error("Please upload and ingest documents first using the sidebar.")
         st.stop()
 
-    # Display user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate and display assistant response
     with st.chat_message("assistant"):
         with st.spinner("Searching documents and generating answer..."):
             try:
-                response = query(prompt)
+                response, source_docs = query(prompt)
                 st.markdown(response)
+
+                with st.expander("📄 Sources used"):
+                    for i, doc in enumerate(source_docs, 1):
+                        source = doc.metadata.get("source", "Unknown")
+                        st.markdown(f"**Chunk {i}** — `{source}`")
+                        st.caption(doc.page_content[:300] + "...")
+                        st.divider()
+
                 st.session_state.messages.append({"role": "assistant", "content": response})
             except Exception as e:
                 err_msg = f"Error: {e}"

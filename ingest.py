@@ -1,18 +1,10 @@
 """
 ingest.py — Document Ingestion Pipeline
-
-What this does:
-  1. Loads all PDFs and .txt files from a folder
-  2. Splits them into overlapping chunks
-  3. Embeds each chunk using Ollama's nomic-embed-text model
-  4. Stores the embeddings + text in a local ChromaDB vector store
-
-Run standalone: python ingest.py
-Or call ingest(path) from app.py.
 """
 
 import os
 import shutil
+import time
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -20,21 +12,16 @@ from langchain_community.embeddings import OllamaEmbeddings
 from langchain_chroma import Chroma
 
 # --- Configuration ---
-CHROMA_PATH = "chroma_db"       # Where ChromaDB stores its files on disk
-EMBED_MODEL = "nomic-embed-text" # The Ollama embedding model
-CHUNK_SIZE = 800                 # Max tokens per chunk
-CHUNK_OVERLAP = 100              # How many tokens overlap between adjacent chunks
-                                 # Overlap prevents losing context at chunk boundaries
+CHROMA_PATH  = "chroma_db"
+EMBED_MODEL  = "nomic-embed-text"
+CHUNK_SIZE   = 800
+CHUNK_OVERLAP = 100
+BATCH_SIZE   = 10   # Embed this many chunks per call — faster than one-by-one
 
 
 def load_documents(folder_path: str) -> list:
-    """
-    Load all PDFs and .txt files from a directory.
-    Returns a list of LangChain Document objects.
-    """
     docs = []
 
-    # Load PDFs
     pdf_files = [f for f in os.listdir(folder_path) if f.endswith(".pdf")]
     if pdf_files:
         pdf_loader = PyPDFDirectoryLoader(folder_path)
@@ -44,7 +31,6 @@ def load_documents(folder_path: str) -> list:
         except Exception as e:
             print(f"  PDF loader error: {e}")
 
-    # Load .txt files
     txt_loader = DirectoryLoader(folder_path, glob="**/*.txt", loader_cls=TextLoader)
     try:
         txt_docs = txt_loader.load()
@@ -58,49 +44,57 @@ def load_documents(folder_path: str) -> list:
 
 
 def split_documents(docs: list) -> list:
-    """
-    Split documents into overlapping chunks.
-
-    RecursiveCharacterTextSplitter tries to split on paragraph breaks first,
-    then sentences, then words — keeping chunks semantically coherent.
-    """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         length_function=len,
     )
-    chunks = splitter.split_documents(docs)
-    return chunks
+    return splitter.split_documents(docs)
 
 
-def create_vector_store(chunks: list) -> Chroma:
+def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
     """
-    Embed each chunk and store in ChromaDB.
-
-    OllamaEmbeddings sends text to the locally-running nomic-embed-text model,
-    which returns a high-dimensional vector for each chunk. ChromaDB stores those
-    vectors and the original text so we can do similarity search later.
+    Embed chunks in batches and write to ChromaDB.
+    progress_callback(current, total) fires after each batch so the UI
+    can update a progress bar in real time.
     """
     embeddings = OllamaEmbeddings(model=EMBED_MODEL)
 
-    # Always rebuild from scratch so old documents don't pollute new uploads
+    # Windows-safe deletion: retry up to 5 times if files are locked
     if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
+        for _ in range(5):
+            try:
+                shutil.rmtree(CHROMA_PATH)
+                break
+            except PermissionError:
+                time.sleep(1)
 
-    db = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=CHROMA_PATH,
-    )
+    total = len(chunks)
+    db = None
 
-    print(f"  Stored {len(chunks)} chunks in ChromaDB at '{CHROMA_PATH}/'")
+    for i in range(0, total, BATCH_SIZE):
+        batch = chunks[i : i + BATCH_SIZE]
+
+        if db is None:
+            db = Chroma.from_documents(
+                documents=batch,
+                embedding=embeddings,
+                persist_directory=CHROMA_PATH,
+            )
+        else:
+            db.add_documents(batch)
+
+        if progress_callback:
+            progress_callback(min(i + BATCH_SIZE, total), total)
+
+    print(f"  Stored {total} chunks in ChromaDB at '{CHROMA_PATH}/'")
     return db
 
 
-def ingest(folder_path: str = "documents") -> Chroma:
+def ingest(folder_path: str = "documents", progress_callback=None) -> Chroma:
     """
-    Full ingestion pipeline: load → split → embed → store.
-    Returns the ChromaDB vector store object.
+    Full pipeline: load → split → embed → store.
+    progress_callback(current, total) fires during the embedding step.
     """
     print(f"\nIngesting documents from '{folder_path}'...")
 
@@ -115,13 +109,11 @@ def ingest(folder_path: str = "documents") -> Chroma:
     print(f"  Total chunks created: {len(chunks)}")
 
     print("Step 3/3: Embedding and storing in ChromaDB...")
-    db = create_vector_store(chunks)
+    db = create_vector_store(chunks, progress_callback=progress_callback)
 
     print("\nIngestion complete!\n")
     return db
 
 
 if __name__ == "__main__":
-    # Quick test: put some PDFs or .txt files in a 'documents/' folder,
-    # then run: python ingest.py
     ingest("documents")
