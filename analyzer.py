@@ -1,18 +1,17 @@
 """
-analyzer.py — Direct LLM analysis (no retrieval)
-
-Used by the Analyze Text tab. Sends text directly to the local Ollama LLM
-with a section-specific prompt. No vector search involved — this is pure
-LLM reasoning, not RAG.
+analyzer.py — Direct LLM analysis using Groq (no retrieval)
 """
 
-from langchain_community.chat_models import ChatOllama
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-LLM_MODEL = "llama3"
+LLM_MODEL = "llama3-8b-8192"
 
-# Tailored prompt for each section type
 PROMPTS = {
     "Title": """You are a research assistant helping a graduate student understand academic papers.
 
@@ -104,25 +103,14 @@ Be clear, thorough, and accessible.""",
 
 
 def analyze_text(text: str, section_type: str) -> str:
-    """
-    Send text directly to the LLM with a section-specific prompt.
-    Returns a plain-English breakdown as a string.
-    """
     prompt_template = PROMPTS.get(section_type, PROMPTS["Custom section"])
-
     prompt = ChatPromptTemplate.from_template(prompt_template)
-    llm    = ChatOllama(model=LLM_MODEL)
+    llm    = ChatGroq(model=LLM_MODEL)
     chain  = prompt | llm | StrOutputParser()
-
     return chain.invoke({"text": text})
 
 
 def summarize_paper(full_text: str, filename: str) -> str:
-    """
-    Generate a plain-English abstract/summary of a paper from its full text.
-    Uses the first 4000 chars (intro + abstract area) as input to keep it fast.
-    """
-    # Use the first portion of the paper which contains abstract + intro
     excerpt = full_text[:4000]
 
     prompt_template = """You are a research assistant helping a graduate student quickly understand papers.
@@ -141,7 +129,6 @@ Paper excerpt:
 Plain-English Abstract:"""
 
     prompt = ChatPromptTemplate.from_template(prompt_template)
-    llm    = ChatOllama(model=LLM_MODEL)
+    llm    = ChatGroq(model=LLM_MODEL)
     chain  = prompt | llm | StrOutputParser()
-
     return chain.invoke({"text": excerpt})

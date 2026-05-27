@@ -1,5 +1,6 @@
 """
 ingest.py — Document Ingestion Pipeline
+Uses HuggingFace embeddings (no Ollama required).
 """
 
 import os
@@ -8,15 +9,14 @@ import time
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
-# --- Configuration ---
-CHROMA_PATH  = "chroma_db"
-EMBED_MODEL  = "nomic-embed-text"
-CHUNK_SIZE   = 800
+CHROMA_PATH   = "chroma_db"
+EMBED_MODEL   = "all-MiniLM-L6-v2"
+CHUNK_SIZE    = 800
 CHUNK_OVERLAP = 100
-BATCH_SIZE   = 10   # Embed this many chunks per call — faster than one-by-one
+BATCH_SIZE    = 10
 
 
 def load_documents(folder_path: str) -> list:
@@ -53,14 +53,9 @@ def split_documents(docs: list) -> list:
 
 
 def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
-    """
-    Embed chunks in batches and write to ChromaDB.
-    progress_callback(current, total) fires after each batch so the UI
-    can update a progress bar in real time.
-    """
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
 
-    # Windows-safe deletion: retry up to 5 times if files are locked
+    # Windows-safe deletion with retry
     if os.path.exists(CHROMA_PATH):
         for _ in range(5):
             try:
@@ -70,7 +65,7 @@ def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
                 time.sleep(1)
 
     total = len(chunks)
-    db = None
+    db    = None
 
     for i in range(0, total, BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
@@ -92,10 +87,6 @@ def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
 
 
 def ingest(folder_path: str = "documents", progress_callback=None) -> Chroma:
-    """
-    Full pipeline: load → split → embed → store.
-    progress_callback(current, total) fires during the embedding step.
-    """
     print(f"\nIngesting documents from '{folder_path}'...")
 
     print("Step 1/3: Loading documents...")
