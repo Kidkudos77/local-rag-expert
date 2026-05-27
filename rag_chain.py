@@ -100,14 +100,22 @@ def build_rag_chain():
     return chain
 
 
-def query(question: str) -> str:
-    """
-    Run a question through the RAG chain and return the answer string.
-    Called by app.py on each user message.
-    """
-    chain = build_rag_chain()
-    return chain.invoke(question)
+def query(question: str) -> tuple[str, list]:
+    retriever = get_retriever()
+    source_docs = retriever.invoke(question)
 
+    prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+    llm = ChatOllama(model=LLM_MODEL)
+
+    chain = (
+        {"context": lambda _: format_docs(source_docs), "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+
+    answer = chain.invoke(question)
+    return answer, source_docs
 
 if __name__ == "__main__":
     # Quick CLI test after running ingest.py
