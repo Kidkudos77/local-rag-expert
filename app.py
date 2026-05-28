@@ -8,7 +8,7 @@ import shutil
 
 import streamlit as st
 
-from ingest import ingest, CHROMA_PATH
+from ingest import ingest
 from rag_chain import query
 from analyzer import analyze_text, summarize_paper
 from extractor import (
@@ -82,7 +82,7 @@ with st.sidebar:
             st.error(f"Ingestion failed: {e}")
 
     st.divider()
-    if os.path.exists(CHROMA_PATH) or st.session_state.get("chroma_db") is not None:
+    if st.session_state.get("chroma_db") is not None:
         st.success("✅ Vector store is ready")
     else:
         st.warning("⚠️ No documents ingested yet")
@@ -111,7 +111,7 @@ with tab1:
             st.markdown(msg["content"])
 
     if prompt := st.chat_input("Ask a question about your documents...", key="rag_input"):
-        if not os.path.exists(CHROMA_PATH) and st.session_state.get("chroma_db") is None:
+        if st.session_state.get("chroma_db") is None:
             st.error("Please upload and ingest documents first using the sidebar.")
             st.stop()
 

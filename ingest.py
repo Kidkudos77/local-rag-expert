@@ -1,18 +1,16 @@
 """
 ingest.py — Document Ingestion Pipeline
-Uses HuggingFace embeddings (no Ollama required).
+Uses HuggingFace embeddings and ChromaDB in-memory mode.
+Works on both local machines and cloud (no disk writes required).
 """
 
 import os
-import shutil
-import time
-
 from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+import chromadb
 
-CHROMA_PATH   = "chroma_db"
 EMBED_MODEL   = "all-MiniLM-L6-v2"
 CHUNK_SIZE    = 800
 CHUNK_OVERLAP = 100
@@ -53,19 +51,14 @@ def split_documents(docs: list) -> list:
 
 
 def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
+    """
+    Always uses ChromaDB EphemeralClient (in-memory).
+    No disk writes — works on Streamlit Cloud and local machines.
+    """
     embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-
-    # Windows-safe deletion with retry
-    if os.path.exists(CHROMA_PATH):
-        for _ in range(5):
-            try:
-                shutil.rmtree(CHROMA_PATH)
-                break
-            except PermissionError:
-                time.sleep(1)
-
-    total = len(chunks)
-    db    = None
+    client     = chromadb.EphemeralClient()
+    total      = len(chunks)
+    db         = None
 
     for i in range(0, total, BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
@@ -74,7 +67,8 @@ def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
             db = Chroma.from_documents(
                 documents=batch,
                 embedding=embeddings,
-                persist_directory=CHROMA_PATH,
+                client=client,
+                collection_name="rag_collection",
             )
         else:
             db.add_documents(batch)
@@ -82,7 +76,7 @@ def create_vector_store(chunks: list, progress_callback=None) -> Chroma:
         if progress_callback:
             progress_callback(min(i + BATCH_SIZE, total), total)
 
-    print(f"  Stored {total} chunks in ChromaDB at '{CHROMA_PATH}/'")
+    print(f"  Stored {total} chunks in ChromaDB (in-memory)")
     return db
 
 

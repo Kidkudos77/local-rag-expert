@@ -1,7 +1,6 @@
 """
 rag_chain.py — Retrieval-Augmented Generation Chain
-Uses Groq for LLM inference and HuggingFace for embeddings.
-Supports both local persistent ChromaDB and in-memory mode for cloud.
+Uses Groq for LLM and retrieves from in-memory ChromaDB stored in session state.
 """
 
 import os
@@ -11,15 +10,13 @@ load_dotenv()
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
-CHROMA_PATH  = "chroma_db"
-EMBED_MODEL  = "all-MiniLM-L6-v2"
-LLM_MODEL    = "llama-3.3-70b-versatile"
-TOP_K        = 5
+EMBED_MODEL = "all-MiniLM-L6-v2"
+LLM_MODEL   = "llama-3.3-70b-versatile"
+TOP_K       = 5
 
 PROMPT_TEMPLATE = """\
 You are a helpful expert assistant. Answer the user's question based ONLY on the
@@ -47,19 +44,10 @@ def format_docs(docs: list) -> str:
 
 
 def get_retriever():
-    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-
-    # If we have an in-memory db stored in session state (cloud mode), use it
-    if "chroma_db" in st.session_state and st.session_state["chroma_db"] is not None:
-        db = st.session_state["chroma_db"]
-    elif os.path.exists(CHROMA_PATH):
-        db = Chroma(
-            persist_directory=CHROMA_PATH,
-            embedding_function=embeddings,
-        )
-    else:
+    """Get retriever from the in-memory ChromaDB stored in session state."""
+    db = st.session_state.get("chroma_db")
+    if db is None:
         raise ValueError("No vector store found. Please ingest documents first.")
-
     return db.as_retriever(search_kwargs={"k": TOP_K})
 
 
