@@ -10,7 +10,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-LLM_MODEL = "llama3-8b-8192"
+LLM_MODEL = "llama-3.3-70b-versatile"
 
 PROMPTS = {
     "Title": """You are a research assistant helping a graduate student understand academic papers.

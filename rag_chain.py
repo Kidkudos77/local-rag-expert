@@ -16,7 +16,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 CHROMA_PATH  = "chroma_db"
 EMBED_MODEL  = "all-MiniLM-L6-v2"
-LLM_MODEL    = "llama3-8b-8192"
+LLM_MODEL    = "llama-3.3-70b-versatile"
 TOP_K        = 5
 
 PROMPT_TEMPLATE = """\
