@@ -68,7 +68,8 @@ with st.sidebar:
             status_text.caption(f"{pct}% complete")
 
         try:
-            ingest(DOCS_FOLDER, progress_callback=update_progress)
+            db = ingest(DOCS_FOLDER, progress_callback=update_progress)
+            st.session_state["chroma_db"] = db
             progress_bar.progress(100, text="✅ Done!")
             status_text.empty()
             st.success(f"✅ Ready! {len(uploaded_files)} file(s) indexed.")
@@ -81,7 +82,7 @@ with st.sidebar:
             st.error(f"Ingestion failed: {e}")
 
     st.divider()
-    if os.path.exists(CHROMA_PATH):
+    if os.path.exists(CHROMA_PATH) or st.session_state.get("chroma_db") is not None:
         st.success("✅ Vector store is ready")
     else:
         st.warning("⚠️ No documents ingested yet")
@@ -110,7 +111,7 @@ with tab1:
             st.markdown(msg["content"])
 
     if prompt := st.chat_input("Ask a question about your documents...", key="rag_input"):
-        if not os.path.exists(CHROMA_PATH):
+        if not os.path.exists(CHROMA_PATH) and st.session_state.get("chroma_db") is None:
             st.error("Please upload and ingest documents first using the sidebar.")
             st.stop()
 

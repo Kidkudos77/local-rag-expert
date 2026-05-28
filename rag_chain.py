@@ -1,12 +1,14 @@
 """
 rag_chain.py — Retrieval-Augmented Generation Chain
 Uses Groq for LLM inference and HuggingFace for embeddings.
+Supports both local persistent ChromaDB and in-memory mode for cloud.
 """
 
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
+import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -46,25 +48,19 @@ def format_docs(docs: list) -> str:
 
 def get_retriever():
     embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-    db = Chroma(
-        persist_directory=CHROMA_PATH,
-        embedding_function=embeddings,
-    )
+
+    # If we have an in-memory db stored in session state (cloud mode), use it
+    if "chroma_db" in st.session_state and st.session_state["chroma_db"] is not None:
+        db = st.session_state["chroma_db"]
+    elif os.path.exists(CHROMA_PATH):
+        db = Chroma(
+            persist_directory=CHROMA_PATH,
+            embedding_function=embeddings,
+        )
+    else:
+        raise ValueError("No vector store found. Please ingest documents first.")
+
     return db.as_retriever(search_kwargs={"k": TOP_K})
-
-
-def build_rag_chain():
-    retriever = get_retriever()
-    prompt    = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    llm       = ChatGroq(model=LLM_MODEL)
-
-    chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-        | StrOutputParser()
-    )
-    return chain
 
 
 def query(question: str) -> tuple:
