@@ -139,6 +139,17 @@ def get_source_docs(question: str) -> list:
     return rerank_docs(question, raw_docs, top_k=5)
 
 
+def _get_paper_list() -> str:
+    """Get formatted list of all ingested paper names from session state."""
+    try:
+        papers = st.session_state.get("ingested_files", [])
+        if papers:
+            return "\n".join(f"  - {p}" for p in papers)
+    except:
+        pass
+    return "  - (paper list unavailable)"
+
+
 def stream_query(question: str, source_docs: list, history: list = None, comparison_mode: bool = False):
     """
     Stream the LLM response token by token.
@@ -157,6 +168,7 @@ def stream_query(question: str, source_docs: list, history: list = None, compari
         "context":         context,
         "question":        question,
         "history_section": hist,
+        "paper_list":      _get_paper_list(),
     }):
         yield chunk
 
@@ -167,3 +179,19 @@ def query(question: str, history: list = None, comparison_mode: bool = False) ->
     source_docs = get_source_docs(question)
     response    = "".join(stream_query(question, source_docs, history, comparison_mode))
     return response, source_docs
+
+
+def get_all_sources() -> list:
+    """Return all unique source filenames stored in the vector store."""
+    try:
+        db = st.session_state.get("chroma_db")
+        if db is None:
+            return []
+        results = db.get()
+        sources = set()
+        for meta in results.get("metadatas", []):
+            if meta and "source" in meta:
+                sources.add(os.path.basename(meta["source"]))
+        return sorted(list(sources))
+    except:
+        return []

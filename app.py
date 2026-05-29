@@ -11,7 +11,7 @@ import numpy as np
 import streamlit as st
 
 from ingest import ingest
-from rag_chain import get_source_docs, stream_query, find_citation
+from rag_chain import get_source_docs, stream_query, find_citation, get_all_sources
 from analyzer import (
     analyze_text, summarize_paper, generate_literature_review,
     build_glossary, identify_research_gaps, compare_papers,
@@ -111,10 +111,11 @@ with st.sidebar:
 
         try:
             db = ingest(DOCS_FOLDER, progress_callback=update_progress)
-            st.session_state["chroma_db"] = db
-            st.session_state["messages"]  = []
-            st.session_state["summaries"] = {}
-            st.session_state["questions"] = []
+            st.session_state["chroma_db"]      = db
+            st.session_state["messages"]         = []
+            st.session_state["summaries"]        = {}
+            st.session_state["questions"]        = []
+            st.session_state["ingested_files"]   = staged.copy()
             st.session_state.pop("section_text", None)
             progress_bar.progress(100, text="✅ Done!")
             status_text.empty()
@@ -127,6 +128,11 @@ with st.sidebar:
     st.divider()
     if st.session_state["chroma_db"] is not None:
         st.success("✅ Vector store is ready")
+        loaded = st.session_state.get("ingested_files", [])
+        if loaded:
+            st.caption(f"**{len(loaded)} paper(s) loaded:**")
+            for p in loaded:
+                st.caption(f"  📄 {p}")
     else:
         st.warning("⚠️ No documents ingested yet")
 
