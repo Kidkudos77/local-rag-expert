@@ -127,7 +127,13 @@ def get_retriever(top_k: int = TOP_K):
     db = st.session_state.get("chroma_db")
     if db is None:
         raise ValueError("No vector store found. Please ingest documents first.")
-    return db.as_retriever(search_kwargs={"k": top_k})
+    # MMR (Maximum Marginal Relevance) balances relevance with diversity
+    # fetch_k: how many candidates to consider, k: how many to return
+    # lambda_mult closer to 0 = more diversity, closer to 1 = more relevance
+    return db.as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": top_k, "fetch_k": top_k * 3, "lambda_mult": 0.6}
+    )
 
 
 # ── Streaming query (main chat function) ─────────────────────────────────────

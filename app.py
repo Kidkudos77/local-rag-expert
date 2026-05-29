@@ -77,7 +77,10 @@ with st.sidebar:
     )
 
     # Save files immediately on upload so they persist across reruns
+    # Clear old staged files first to prevent duplicates from previous sessions
     if uploaded_files:
+        if os.path.exists(DOCS_FOLDER):
+            shutil.rmtree(DOCS_FOLDER)
         os.makedirs(DOCS_FOLDER, exist_ok=True)
         for file in uploaded_files:
             dest = os.path.join(DOCS_FOLDER, file.name)
