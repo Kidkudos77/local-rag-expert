@@ -1,6 +1,5 @@
 """
-analyzer.py — Direct LLM analysis, literature review, glossary, research gaps,
-               cross-paper comparison, and multimodal image analysis.
+analyzer.py — All LLM-powered analysis tools.
 """
 
 import os
@@ -20,29 +19,25 @@ PROMPTS = {
     "Title": """You are a research assistant helping a graduate student understand academic papers.
 Analyze the following paper title and explain in plain English:
 1. What topic or problem the paper is about
-2. Who the likely subjects or context are (if mentioned)
-3. What kind of study this appears to be
-4. Any important keywords or technical terms and what they mean
-
+2. What kind of study this appears to be
+3. Any important keywords or technical terms and what they mean
 Title: {text}""",
 
     "Abstract": """You are a research assistant helping a graduate student understand academic papers.
 Break down the following abstract in plain English:
-1. What problem or question the study addresses
+1. What problem the study addresses
 2. What methods were used
 3. What the main findings were
 4. What the authors concluded
 5. Why this research matters
-
 Abstract: {text}""",
 
     "Introduction": """You are a research assistant helping a graduate student understand academic papers.
-Analyze the following introduction and explain:
+Analyze the following introduction:
 1. What background context is being established
 2. What gap in knowledge the authors identified
 3. What the research question or hypothesis is
 4. How this study fits into the existing literature
-
 Introduction: {text}""",
 
     "Methods": """You are a research assistant helping a graduate student understand academic papers.
@@ -52,7 +47,6 @@ Break down the following methods section:
 3. What procedures or techniques were applied
 4. What was measured and how
 5. Any potential weaknesses or limitations
-
 Methods: {text}""",
 
     "Results": """You are a research assistant helping a graduate student understand academic papers.
@@ -61,7 +55,6 @@ Analyze the following results section:
 2. Whether the results supported or contradicted the hypothesis
 3. Any surprising or noteworthy patterns
 4. What the numbers or statistics mean in practical terms
-
 Results: {text}""",
 
     "Discussion / Conclusion": """You are a research assistant helping a graduate student understand academic papers.
@@ -71,7 +64,6 @@ Analyze the following discussion or conclusion:
 3. What limitations the authors acknowledged
 4. What future research directions are suggested
 5. What the real-world implications are
-
 Discussion/Conclusion: {text}""",
 
     "Custom section": """You are a research assistant helping a graduate student understand academic papers.
@@ -80,180 +72,200 @@ Analyze the following text and provide:
 2. An explanation of any technical terms or jargon
 3. The key takeaway or main point
 4. Questions a critical reader should ask
-
 Text: {text}""",
 }
 
 
-def _llm_chain(prompt_template: str, text: str) -> str:
-    prompt = ChatPromptTemplate.from_template(prompt_template)
+def _run(template: str, **kwargs) -> str:
+    prompt = ChatPromptTemplate.from_template(template)
     llm    = ChatGroq(model=LLM_MODEL)
     chain  = prompt | llm | StrOutputParser()
-    return chain.invoke({"text": text})
+    return chain.invoke(kwargs)
 
-
-# ── Section analysis ──────────────────────────────────────────────────────────
 
 def analyze_text(text: str, section_type: str) -> str:
     template = PROMPTS.get(section_type, PROMPTS["Custom section"])
-    return _llm_chain(template, text)
+    return _run(template, text=text)
 
-
-# ── Paper summary ─────────────────────────────────────────────────────────────
 
 def summarize_paper(full_text: str, filename: str) -> str:
-    excerpt  = full_text[:4000]
-    template = """You are a research assistant. Based on the following excerpt, write a plain-English abstract (4-6 sentences) covering:
+    return _run("""You are a research assistant. Based on the following excerpt, write a plain-English abstract (4-6 sentences) covering:
 1. What problem the paper addresses
 2. What approach or method was used
 3. What the main findings or contributions are
 4. Why it matters
+Write as a paragraph, not a list.
+Paper excerpt: {text}
+Plain-English Abstract:""", text=full_text[:4000])
 
-Write as a paragraph, not a list. Be concise and clear.
-
-Paper excerpt:
-{text}
-
-Plain-English Abstract:"""
-    return _llm_chain(template, excerpt)
-
-
-# ── Literature review generator ───────────────────────────────────────────────
 
 def generate_literature_review(summaries: dict) -> str:
-    """
-    summaries: {filename: summary_text}
-    Generates a structured 3-4 paragraph literature review.
-    """
-    combined = "\n\n".join([
-        f"Paper: {os.path.basename(k)}\n{v}"
-        for k, v in summaries.items()
-    ])
-    template = """You are an academic writing assistant helping a graduate student write a literature review.
-
+    combined = "\n\n".join([f"Paper: {os.path.basename(k)}\n{v}" for k, v in summaries.items()])
+    return _run("""You are an academic writing assistant helping a graduate student write a literature review.
 Based on the following paper summaries, write a structured literature review (3-4 paragraphs) that:
 1. Introduces the research area and its importance
 2. Groups the papers by theme, approach, or chronology
 3. Identifies agreements, contradictions, and gaps across the papers
 4. Concludes with what remains unknown or understudied
+Write in formal academic prose. Reference specific papers by filename when making claims.
+Paper summaries: {text}
+Literature Review:""", text=combined)
 
-Write in formal academic prose. Reference specific papers by their filename when making claims.
-
-Paper summaries:
-{text}
-
-Literature Review:"""
-    return _llm_chain(template, combined)
-
-
-# ── Glossary builder ──────────────────────────────────────────────────────────
 
 def build_glossary(full_texts: dict) -> str:
-    """
-    full_texts: {filename: full_text}
-    Extracts and defines all technical terms across all papers.
-    """
-    combined = "\n\n".join([
-        f"From {os.path.basename(k)}:\n{v[:2000]}"
-        for k, v in full_texts.items()
-    ])
-    template = """You are a research assistant building a glossary for a graduate student.
-
+    combined = "\n\n".join([f"From {os.path.basename(k)}:\n{v[:2000]}" for k, v in full_texts.items()])
+    return _run("""You are a research assistant building a glossary for a graduate student.
 Extract all technical terms, acronyms, and domain-specific vocabulary from the following text.
 For each term provide a brief plain-English definition (1-2 sentences).
 Format each entry as: **Term**: Definition
-
 Focus on terms that a reader unfamiliar with the field would need defined.
-Group related terms together.
+Text: {text}
+Glossary:""", text=combined)
 
-Text:
-{text}
-
-Glossary:"""
-    return _llm_chain(template, combined)
-
-
-# ── Research gap identifier ───────────────────────────────────────────────────
 
 def identify_research_gaps(summaries: dict) -> str:
-    """
-    Analyzes multiple paper summaries and identifies research gaps.
-    """
-    combined = "\n\n".join([
-        f"Paper: {os.path.basename(k)}\n{v}"
-        for k, v in summaries.items()
-    ])
-    template = """You are a research assistant helping a graduate student identify gaps in the literature.
-
+    combined = "\n\n".join([f"Paper: {os.path.basename(k)}\n{v}" for k, v in summaries.items()])
+    return _run("""You are a research assistant helping a graduate student identify gaps in the literature.
 Based on the following paper summaries, identify:
-1. **Questions left unanswered** — what do these papers fail to address?
-2. **Methodological limitations** — what approaches haven't been tried?
-3. **Underrepresented contexts** — what populations, settings, or domains are missing?
-4. **Contradictions needing resolution** — where do papers disagree without resolution?
-5. **Future research opportunities** — what are the most promising directions?
-
+1. **Questions left unanswered**
+2. **Methodological limitations**
+3. **Underrepresented contexts**
+4. **Contradictions needing resolution**
+5. **Future research opportunities**
 Be specific and reference individual papers when relevant.
+Paper summaries: {text}
+Research Gaps Analysis:""", text=combined)
 
-Paper summaries:
-{text}
-
-Research Gaps Analysis:"""
-    return _llm_chain(template, combined)
-
-
-# ── Cross-paper comparison ────────────────────────────────────────────────────
 
 def compare_papers(question: str, full_texts: dict) -> str:
-    """
-    Directly compares papers on a specific question without RAG retrieval.
-    Uses first 2000 chars of each paper for speed.
-    """
-    combined = "\n\n".join([
-        f"=== {os.path.basename(k)} ===\n{v[:2000]}"
-        for k, v in full_texts.items()
-    ])
-    template = """You are a research assistant specializing in comparative analysis of academic papers.
-
-Compare the following papers specifically on this question: {question}
-
-For each paper, note what it says (or doesn't say) about the topic.
+    combined = "\n\n".join([f"=== {os.path.basename(k)} ===\n{v[:2000]}" for k, v in full_texts.items()])
+    return _run("""You are a research assistant specializing in comparative analysis of academic papers.
+Compare the following papers on this specific question: {question}
+For each paper note what it says (or doesn't say) about the topic.
 Then provide a synthesis highlighting similarities, differences, and contradictions.
+Papers: {text}
+Comparative Analysis:""", question=question, text=combined)
 
-Papers:
+
+def ask_primary_paper(question: str, primary_text: str, primary_name: str, other_texts: dict) -> str:
+    """Answer a question using one paper as the primary source, comparing others against it."""
+    others = "\n\n".join([f"=== {os.path.basename(k)} ===\n{v[:1500]}" for k, v in other_texts.items()])
+    return _run("""You are a research assistant. The user has designated one paper as their PRIMARY source.
+Answer the following question primarily from the PRIMARY paper, then note how the other papers
+support, contradict, or extend what the primary paper says.
+
+PRIMARY PAPER ({primary_name}):
+{primary_text}
+
+OTHER PAPERS:
+{others}
+
+Question: {question}
+
+Answer (lead with what the primary paper says, then bring in the others):""",
+        question=question,
+        primary_name=os.path.basename(primary_name),
+        primary_text=primary_text[:3000],
+        others=others)
+
+
+def suggest_questions(full_texts: dict) -> list:
+    """Generate 10 good questions to ask about the ingested papers."""
+    combined = "\n\n".join([f"Paper: {os.path.basename(k)}\n{v[:1500]}" for k, v in full_texts.items()])
+    result = _run("""You are a research assistant helping a graduate student get the most out of their papers.
+Based on the following paper excerpts, generate exactly 10 insightful questions the student should ask.
+Include a mix of:
+- Factual retrieval questions (specific findings, methods, definitions)
+- Comparison questions (if multiple papers)
+- Critical thinking questions (limitations, implications, gaps)
+
+Return ONLY the 10 questions as a numbered list, nothing else.
+
+Paper excerpts: {text}
+
+10 Questions:""", text=combined)
+
+    # Parse numbered list into a Python list
+    lines = [l.strip() for l in result.strip().split("\n") if l.strip()]
+    questions = []
+    for line in lines:
+        cleaned = line.lstrip("0123456789.-) ").strip()
+        if cleaned:
+            questions.append(cleaned)
+    return questions[:10]
+
+
+def improve_writing(draft_text: str, context_texts: dict) -> str:
+    """Improve a draft paragraph using ingested papers as sources."""
+    context = "\n\n".join([f"From {os.path.basename(k)}:\n{v[:1500]}" for k, v in context_texts.items()])
+    return _run("""You are an academic writing assistant helping a graduate student improve their writing.
+
+The student has written the following draft passage. Using the research papers provided as context,
+improve the passage by:
+1. Strengthening claims with specific evidence from the papers
+2. Improving clarity and academic tone
+3. Adding citations where appropriate (use filename as reference)
+4. Fixing any logical gaps or weak arguments
+
+STUDENT DRAFT:
+{draft}
+
+AVAILABLE RESEARCH CONTEXT:
+{context}
+
+Improved passage (with inline citations to paper filenames):""",
+        draft=draft_text, context=context)
+
+
+def format_citations(source_docs: list, style: str = "APA") -> str:
+    """Format retrieved source documents as properly formatted citations."""
+    sources = []
+    for doc in source_docs:
+        source = doc.metadata.get("source", "Unknown")
+        page   = doc.metadata.get("page", "")
+        sources.append(f"File: {os.path.basename(source)}, Page: {page}\nExcerpt: {doc.page_content[:200]}")
+
+    combined = "\n\n".join(sources)
+    return _run("""You are a citation formatter. Based on the following source information extracted from PDF files,
+generate properly formatted {style} citations. Since we only have filename and page information
+(not full bibliographic data), create the best possible citation and note what information
+would be needed to complete it properly.
+
+Sources:
 {text}
 
-Comparative Analysis:"""
-
-    prompt = ChatPromptTemplate.from_template(template)
-    llm    = ChatGroq(model=LLM_MODEL)
-    chain  = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": question, "text": combined})
+{style} Citations:""", style=style, text=combined)
 
 
-# ── Multimodal image analysis ─────────────────────────────────────────────────
+def find_similar_paper(passage: str, summaries: dict) -> str:
+    """Find which ingested paper is most similar to a given passage."""
+    combined = "\n\n".join([f"Paper: {os.path.basename(k)}\nSummary: {v}" for k, v in summaries.items()])
+    return _run("""You are a research assistant helping identify the most relevant paper for a given passage.
+
+Given the following passage and paper summaries, identify:
+1. Which paper is most thematically similar to the passage and why
+2. How closely the passage aligns with each paper's core topic
+3. Whether the passage could be citing or referencing any of these papers
+
+PASSAGE:
+{passage}
+
+PAPER SUMMARIES:
+{text}
+
+Similarity Analysis:""", passage=passage, text=combined)
+
 
 def analyze_image(image_bytes: bytes, question: str) -> str:
-    """
-    Send an image (figure/chart from a paper) to Groq's vision model for analysis.
-    """
     client    = Groq()
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    response = client.chat.completions.create(
+    response  = client.chat.completions.create(
         model=VISION_MODEL,
         messages=[{
             "role": "user",
             "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{image_b64}"
-                    }
-                },
-                {
-                    "type": "text",
-                    "text": question or "Describe this figure from an academic paper in plain English. Explain what the data shows and what conclusions can be drawn."
-                }
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                {"type": "text", "text": question or "Describe this figure from an academic paper in plain English. Explain what the data shows and what conclusions can be drawn."}
             ]
         }],
         max_tokens=1024,
